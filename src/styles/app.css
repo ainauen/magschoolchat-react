@@ -1,0 +1,46 @@
+/* Background for auth pages */
+.auth-bg {
+  min-height: 100vh;
+  background: radial-gradient(1200px 600px at 20% 10%, rgba(13, 110, 253, 0.18), transparent 60%),
+              radial-gradient(800px 500px at 80% 20%, rgba(25, 135, 84, 0.14), transparent 55%),
+              #f8f9fa;
+}
+
+.auth-logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  border-radius: 16px;
+}
+
+/* Chat layout */
+.chat-sidebar {
+  height: calc(100vh - 56px); /* navbar height approx */
+  overflow: auto;
+  background: #ffffff;
+}
+
+.chat-main {
+  height: calc(100vh - 56px);
+  display: flex;
+  flex-direction: column;
+  background: #f8f9fa;
+}
+
+.chat-header {
+  background: #ffffff;
+}
+
+.chat-content {
+  flex: 1;
+  overflow: auto;
+}
+
+.chat-composer {
+  background: #ffffff;
+}
+
+.chat-offcanvas {
+  width: 320px;
+  max-width: 90vw;
+}
