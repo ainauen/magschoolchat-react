@@ -40,6 +40,8 @@ export default function ChatShell() {
   const [roomError, setRoomError] = useState("");
 
   const [recentRooms, setRecentRooms] = useState([]);
+  const [unreadDirectThreadIds, setUnreadDirectThreadIds] = useState(() => new Set());
+  const [unreadRoomIds, setUnreadRoomIds] = useState(() => new Set());
 
   const activeRoomRef = useRef("");
  
@@ -95,7 +97,12 @@ export default function ChatShell() {
         };
 
         if (!msg?.directThreadId) return;
-        if (msg.directThreadId !== activeThreadRef.current) return;
+
+        if (String(msg.directThreadId) !== String(activeThreadRef.current)) {
+          markDirectUnread(msg.directThreadId);
+          return;
+        }
+       // if (msg.directThreadId !== activeThreadRef.current) return;
 
         setDmMessages((prev) => {
           const list = Array.isArray(prev) ? prev : [];
@@ -130,6 +137,10 @@ export default function ChatShell() {
 
         if (!ev.directThreadId) return;
 
+        if (activeView !== "direct" || String(ev.directThreadId) !== String(activeThreadRef.current)) {
+          markDirectUnread(ev.directThreadId);
+        }
+
         setRecentThreads((prev) => {
           const list = Array.isArray(prev) ? [...prev] : [];
 
@@ -160,7 +171,9 @@ export default function ChatShell() {
           attachments: raw?.attachments ?? raw?.Attachments,
         };
 
-        if (!msg?.roomId) return;
+        if (!msg?.roomId) return;if (String(msg.roomId) !== String(activeRoomRef.current)) {
+          markRoomUnread(msg.roomId);
+        }
 
         setRecentRooms((prev) => {
           const list = Array.isArray(prev) ? [...prev] : [];
@@ -212,6 +225,10 @@ export default function ChatShell() {
         };
 
         if (!ev.roomId) return;
+
+        if (activeView !== "room" || String(ev.roomId) !== String(activeRoomRef.current)) {
+          markRoomUnread(ev.roomId);
+        }
 
         setRecentRooms((prev) => {
           const list = Array.isArray(prev) ? [...prev] : [];
@@ -303,20 +320,52 @@ export default function ChatShell() {
     };
   }, [accessToken]); 
 
-  const getActiveSessionId = async () => {
-    const res = await api.get("/api/sessions/active");
-    const sessionId = res.data?.sessionId;
-    if (!sessionId) throw new Error("No active session found.");
-    return sessionId;
+  const markDirectUnread = (threadId) => {
+    if (!threadId) return;
+    setUnreadDirectThreadIds((prev) => {
+      const next = new Set(prev);
+      next.add(String(threadId));
+      return next;
+    });
   };
 
-  const createRoom = async ({ name, roomType, users }) => {
-    const sessionId = await getActiveSessionId();
+  const clearDirectUnread = (threadId) => {
+    if (!threadId) return;
+    setUnreadDirectThreadIds((prev) => {
+      const next = new Set(prev);
+      next.delete(String(threadId));
+      return next;
+    });
+  };
+
+  const markRoomUnread = (roomId) => {
+    if (!roomId) return;
+    setUnreadRoomIds((prev) => {
+      const next = new Set(prev);
+      next.add(String(roomId));
+      return next;
+    });
+  };
+
+  const clearRoomUnread = (roomId) => {
+    if (!roomId) return;
+    setUnreadRoomIds((prev) => {
+      const next = new Set(prev);
+      next.delete(String(roomId));
+      return next;
+    });
+  };
+
+  const createRoom = async ({ sessionId, name, roomType, users }) => {
+    const trimmedName = (name || "").trim();
+
+    if (!sessionId) throw new Error("Session is required.");
+    if (!trimmedName) throw new Error("Room name is required.");
 
     const createRes = await api.post("/api/rooms", {
       sessionId,
       classId: null,
-      name,
+      name: trimmedName,
       roomType
     });
 
@@ -334,7 +383,7 @@ export default function ChatShell() {
 
     await openRoom({
       roomId: newRoomId,
-      name,
+      name: trimmedName,
       roomType,
       sessionId,
       lastMessagePreview: null,
@@ -377,6 +426,8 @@ export default function ChatShell() {
       setActiveTitle(room.name || "Room");
       setRoomId(rid);
       activeRoomRef.current = rid;
+      activeThreadRef.current ="";
+      clearRoomUnread(rid);
 
       const conn = hubRef.current;
       if (conn?.state === "Connected") {
@@ -456,6 +507,8 @@ export default function ChatShell() {
       setDirectThreadId(tid);
       // Track active thread immediately (ref is instant, state is async)
       activeThreadRef.current = tid;
+      activeRoomRef.current = "";
+      clearDirectUnread(tid);
 
       try {
         const conn = hubRef.current;
@@ -576,6 +629,8 @@ export default function ChatShell() {
             recentRooms={recentRooms}
             recentBusy={recentBusy}
             recentError={recentError}
+            unreadDirectThreadIds={unreadDirectThreadIds}
+            unreadRoomIds={unreadRoomIds}
           />
         </Col>
 
@@ -779,6 +834,8 @@ export default function ChatShell() {
             recentRooms={recentRooms}
             recentBusy={recentBusy}
             recentError={recentError}
+            unreadDirectThreadIds={unreadDirectThreadIds}
+            unreadRoomIds={unreadRoomIds}
           />
         </Offcanvas.Body>
       </Offcanvas>
