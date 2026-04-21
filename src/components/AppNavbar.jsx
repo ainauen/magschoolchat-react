@@ -28,6 +28,14 @@ function createBlankUserRow() {
   };
 }
 
+function createBlankChangePasswordRow() {
+  return {
+    currentPassword: "",
+    newPassword: "",
+    confirmNewPassword: "",
+  };
+}
+
 function toInputDate(value) {
   if (!value) return "";
   if (typeof value === "string") return value.slice(0, 10);
@@ -103,6 +111,12 @@ export default function AppNavbar() {
   const [createUserBusy, setCreateUserBusy] = useState(false);
   const [createUserError, setCreateUserError] = useState("");
 
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [changePasswordRow, setChangePasswordRow] = useState(createBlankChangePasswordRow());
+  const [changePasswordBusy, setChangePasswordBusy] = useState(false);
+  const [changePasswordError, setChangePasswordError] = useState("");
+  const [changePasswordSuccess, setChangePasswordSuccess] = useState("");
+
   useEffect(() => {
     if (!showClassMembersModal) return;
 
@@ -166,6 +180,14 @@ export default function AppNavbar() {
       createUserRow.displayName.trim().length > 0
     );
   }, [createUserRow]);
+
+  const hasUnsavedChangePasswordChanges = useMemo(() => {
+    return (
+      changePasswordRow.currentPassword.trim().length > 0 ||
+      changePasswordRow.newPassword.trim().length > 0 ||
+      changePasswordRow.confirmNewPassword.trim().length > 0
+    );
+  }, [changePasswordRow]);
 
   const loadClasses = async (sessionId) => {
     if (!sessionId) {
@@ -266,6 +288,78 @@ export default function AppNavbar() {
       setError("Failed to load sessions.");
     } finally {
       setLoadingSessions(false);
+    }
+  };
+
+  const openChangePasswordModal = () => {
+    setShowChangePasswordModal(true);
+    setChangePasswordRow(createBlankChangePasswordRow());
+    setChangePasswordError("");
+    setChangePasswordSuccess("");
+  };
+
+  const closeChangePasswordModal = () => {
+    if (changePasswordBusy) return;
+
+    if (hasUnsavedChangePasswordChanges) {
+      const ok = window.confirm(
+        "You have unsaved password changes. If you close now, those changes will be lost. Do you still want to close?"
+      );
+      if (!ok) return;
+    }
+
+    setShowChangePasswordModal(false);
+    setChangePasswordRow(createBlankChangePasswordRow());
+    setChangePasswordError("");
+    setChangePasswordSuccess("");
+  };
+
+  const saveChangePassword = async () => {
+    const currentPassword = changePasswordRow.currentPassword;
+    const newPassword = changePasswordRow.newPassword;
+    const confirmNewPassword = changePasswordRow.confirmNewPassword;
+
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      setChangePasswordError("All password fields are required.");
+      setChangePasswordSuccess("");
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setChangePasswordError("New password and confirm new password do not match.");
+      setChangePasswordSuccess("");
+      return;
+    }
+
+    if (newPassword === currentPassword) {
+      setChangePasswordError("New password must be different from the current password.");
+      setChangePasswordSuccess("");
+      return;
+    }
+
+    setChangePasswordBusy(true);
+    setChangePasswordError("");
+    setChangePasswordSuccess("");
+
+    try {
+      await api.post("/api/auth/change-password", {
+        currentPassword,
+        newPassword,
+        confirmNewPassword,
+      });
+
+      setChangePasswordRow(createBlankChangePasswordRow());
+      setChangePasswordSuccess("Password changed successfully.");
+    } catch (e) {
+      console.error(e);
+      setChangePasswordSuccess("");
+      setChangePasswordError(
+        e?.response?.data && typeof e.response.data === "string"
+          ? e.response.data
+          : "Failed to change password."
+      );
+    } finally {
+      setChangePasswordBusy(false);
     }
   };
 
@@ -732,7 +826,7 @@ export default function AppNavbar() {
     <>
       <Navbar bg="light" expand="md" className="border-bottom">
         <Container fluid className="px-3">
-          <Navbar.Brand className="fw-semibold">MagSchoolChat</Navbar.Brand>
+          <Navbar.Brand className="fw-semibold">MAG School Chat</Navbar.Brand>
 
           <Navbar.Toggle aria-controls="topnav" />
           <Navbar.Collapse id="topnav">
@@ -772,6 +866,9 @@ export default function AppNavbar() {
                 )}
 
                 <Dropdown.Divider />
+                <Dropdown.Item onClick={openChangePasswordModal}>
+                  Change Password
+                </Dropdown.Item>
                 <Dropdown.Item onClick={logout}>Sign out</Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown>
@@ -1425,6 +1522,92 @@ export default function AppNavbar() {
                 ? "Creating Teacher..."
                 : "Creating Student..."
               : "Save"}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal
+        show={showChangePasswordModal}
+        onHide={closeChangePasswordModal}
+        centered
+        backdrop="static"
+      >
+        <Modal.Header closeButton>
+          <Modal.Title>Change Password</Modal.Title>
+        </Modal.Header>
+
+        <Modal.Body>
+          {changePasswordError && (
+            <Alert variant="danger">{changePasswordError}</Alert>
+          )}
+
+          {changePasswordSuccess && (
+            <Alert variant="success">{changePasswordSuccess}</Alert>
+          )}
+
+          <Form.Group className="mb-3">
+            <Form.Label>Current Password</Form.Label>
+            <Form.Control
+              type="password"
+              value={changePasswordRow.currentPassword}
+              onChange={(e) =>
+                setChangePasswordRow((prev) => ({
+                  ...prev,
+                  currentPassword: e.target.value,
+                }))
+              }
+              placeholder="Enter current password"
+              disabled={changePasswordBusy}
+            />
+          </Form.Group>
+
+          <Form.Group className="mb-3">
+            <Form.Label>New Password</Form.Label>
+            <Form.Control
+              type="password"
+              value={changePasswordRow.newPassword}
+              onChange={(e) =>
+                setChangePasswordRow((prev) => ({
+                  ...prev,
+                  newPassword: e.target.value,
+                }))
+              }
+              placeholder="Enter new password"
+              disabled={changePasswordBusy}
+            />
+          </Form.Group>
+
+          <Form.Group>
+            <Form.Label>Confirm New Password</Form.Label>
+            <Form.Control
+              type="password"
+              value={changePasswordRow.confirmNewPassword}
+              onChange={(e) =>
+                setChangePasswordRow((prev) => ({
+                  ...prev,
+                  confirmNewPassword: e.target.value,
+                }))
+              }
+              placeholder="Re-enter new password"
+              disabled={changePasswordBusy}
+            />
+          </Form.Group>
+        </Modal.Body>
+
+        <Modal.Footer>
+          <Button
+            variant="outline-secondary"
+            onClick={closeChangePasswordModal}
+            disabled={changePasswordBusy}
+          >
+            Close
+          </Button>
+          <Button
+            variant="primary"
+            onClick={saveChangePassword}
+            disabled={changePasswordBusy}
+          >
+            {changePasswordBusy ? "Saving..." : "Save"}
           </Button>
         </Modal.Footer>
       </Modal>

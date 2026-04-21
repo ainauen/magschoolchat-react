@@ -137,7 +137,11 @@ export default function ChatShell() {
 
         if (!ev.directThreadId) return;
 
-        if (activeView !== "direct" || String(ev.directThreadId) !== String(activeThreadRef.current)) {
+       // if (activeView !== "direct" || String(ev.directThreadId) !== String(activeThreadRef.current)) {
+       //   markDirectUnread(ev.directThreadId);
+       // }
+
+        if (String(ev.directThreadId) !== String(activeThreadRef.current)) {
           markDirectUnread(ev.directThreadId);
         }
 
@@ -171,7 +175,9 @@ export default function ChatShell() {
           attachments: raw?.attachments ?? raw?.Attachments,
         };
 
-        if (!msg?.roomId) return;if (String(msg.roomId) !== String(activeRoomRef.current)) {
+        if (!msg?.roomId) return;
+        
+        if (String(msg.roomId) !== String(activeRoomRef.current)) {
           markRoomUnread(msg.roomId);
         }
 
@@ -226,7 +232,11 @@ export default function ChatShell() {
 
         if (!ev.roomId) return;
 
-        if (activeView !== "room" || String(ev.roomId) !== String(activeRoomRef.current)) {
+      //  if (activeView !== "room" || String(ev.roomId) !== String(activeRoomRef.current)) {
+      //    markRoomUnread(ev.roomId);
+      //  }
+
+        if (String(ev.roomId) !== String(activeRoomRef.current)) {
           markRoomUnread(ev.roomId);
         }
 
@@ -429,6 +439,12 @@ export default function ChatShell() {
       activeThreadRef.current ="";
       clearRoomUnread(rid);
 
+      try {
+        await api.post(`/api/rooms/${rid}/read`);
+      } catch (e) {
+        console.warn("Failed to mark room as read.", e);
+      }
+
       const conn = hubRef.current;
       if (conn?.state === "Connected") {
         await conn.invoke("JoinRoom", rid);
@@ -464,6 +480,14 @@ export default function ChatShell() {
       );
 
       setRecentRooms(list);
+
+      setUnreadRoomIds(
+        new Set(
+          list
+            .filter((r) => r.isUnread)
+            .map((r) => String(r.roomId))
+        )
+      );
     } catch (e) {
       console.error("Failed to load rooms.", e);
     }
@@ -475,7 +499,17 @@ export default function ChatShell() {
 
     try {
       const res = await api.get("/api/direct/threads", { params: { take: 30 } });
-      setRecentThreads(res.data || []);
+      const list = Array.isArray(res.data) ? res.data : [];
+
+      setRecentThreads(list);
+
+      setUnreadDirectThreadIds(
+        new Set(
+          list
+            .filter((t) => t.isUnread)
+            .map((t) => String(t.directThreadId))
+        )
+      );
     } catch (e) {
       setRecentError("Failed to load recent chats.");
     } finally {
@@ -509,6 +543,12 @@ export default function ChatShell() {
       activeThreadRef.current = tid;
       activeRoomRef.current = "";
       clearDirectUnread(tid);
+
+      try {
+        await api.post(`/api/direct/${tid}/read`);
+      } catch (e) {
+        console.warn("Failed to mark direct thread as read.", e);
+      }
 
       try {
         const conn = hubRef.current;
