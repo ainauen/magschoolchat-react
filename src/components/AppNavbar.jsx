@@ -36,6 +36,12 @@ function createBlankChangePasswordRow() {
   };
 }
 
+function createBlankNicknameRow() {
+  return {
+    nicknameText: "",
+  };
+}
+
 function toInputDate(value) {
   if (!value) return "";
   if (typeof value === "string") return value.slice(0, 10);
@@ -116,6 +122,23 @@ export default function AppNavbar() {
   const [changePasswordBusy, setChangePasswordBusy] = useState(false);
   const [changePasswordError, setChangePasswordError] = useState("");
   const [changePasswordSuccess, setChangePasswordSuccess] = useState("");
+
+  const canManageNicknames =
+    hasRole("Teacher") || hasRole("Administrator");
+
+  const [showNicknameModal, setShowNicknameModal] = useState(false);
+  const [nicknames, setNicknames] = useState([]);
+  const [activeNicknameId, setActiveNicknameId] = useState("");
+  const [nicknameLoading, setNicknameLoading] = useState(false);
+  const [nicknameSaving, setNicknameSaving] = useState(false);
+  const [nicknameError, setNicknameError] = useState("");
+  const [nicknameSuccess, setNicknameSuccess] = useState("");
+
+  const [creatingNickname, setCreatingNickname] = useState(false);
+  const [newNicknameRow, setNewNicknameRow] = useState(createBlankNicknameRow());
+
+  const [editingNicknameId, setEditingNicknameId] = useState(null);
+  const [editingNicknameRow, setEditingNicknameRow] = useState(createBlankNicknameRow());
 
   useEffect(() => {
     if (!showClassMembersModal) return;
@@ -394,6 +417,224 @@ export default function AppNavbar() {
     resetEditing();
     resetCreating();
     setShowSessionsModal(false);
+  };
+
+  const loadNicknames = async () => {
+    setNicknameLoading(true);
+    setNicknameError("");
+    setNicknameSuccess("");
+
+    try {
+      const res = await api.get("/api/teacher/nicknames");
+      const rows = Array.isArray(res.data?.nicknames) ? res.data.nicknames : [];
+      setNicknames(rows);
+      setActiveNicknameId(res.data?.activeNicknameId || "");
+    } catch (e) {
+      console.error(e);
+      setNicknameError("Failed to load nicknames.");
+    } finally {
+      setNicknameLoading(false);
+    }
+  };
+
+  const openNicknameModal = async () => {
+    setShowNicknameModal(true);
+    setNicknameError("");
+    setNicknameSuccess("");
+    setCreatingNickname(false);
+    setNewNicknameRow(createBlankNicknameRow());
+    setEditingNicknameId(null);
+    setEditingNicknameRow(createBlankNicknameRow());
+    await loadNicknames();
+  };
+
+  const closeNicknameModal = () => {
+    if (nicknameSaving) return;
+
+    const hasUnsavedNew = newNicknameRow.nicknameText.trim().length > 0;
+    const hasUnsavedEdit = editingNicknameId && editingNicknameRow.nicknameText.trim().length > 0;
+
+    if (hasUnsavedNew || hasUnsavedEdit) {
+      const ok = window.confirm(
+        "You have unsaved nickname changes. If you close now, those changes will be lost. Do you still want to close?"
+      );
+      if (!ok) return;
+    }
+
+    setShowNicknameModal(false);
+    setNicknameError("");
+    setNicknameSuccess("");
+    setCreatingNickname(false);
+    setNewNicknameRow(createBlankNicknameRow());
+    setEditingNicknameId(null);
+    setEditingNicknameRow(createBlankNicknameRow());
+  };
+
+  const startCreateNickname = () => {
+    if (editingNicknameId) {
+      setNicknameError("Save or cancel the nickname you are editing before creating a new one.");
+      return;
+    }
+
+    setNicknameError("");
+    setNicknameSuccess("");
+    setCreatingNickname(true);
+    setNewNicknameRow(createBlankNicknameRow());
+  };
+
+  const cancelCreateNickname = () => {
+    setCreatingNickname(false);
+    setNewNicknameRow(createBlankNicknameRow());
+    setNicknameError("");
+    setNicknameSuccess("");
+  };
+
+  const saveCreateNickname = async () => {
+    const nicknameText = newNicknameRow.nicknameText.trim();
+
+    if (!nicknameText) {
+      setNicknameError("Nickname is required.");
+      return;
+    }
+
+    if (nicknameText.length > 80) {
+      setNicknameError("Nickname must be 1-80 characters.");
+      return;
+    }
+
+    setNicknameSaving(true);
+    setNicknameError("");
+    setNicknameSuccess("");
+
+    try {
+      await api.post("/api/teacher/nicknames", {
+        nicknameText,
+      });
+
+      setCreatingNickname(false);
+      setNewNicknameRow(createBlankNicknameRow());
+      setNicknameSuccess("Nickname created successfully.");
+      await loadNicknames();
+    } catch (e) {
+      console.error(e);
+      setNicknameError(
+        e?.response?.data && typeof e.response.data === "string"
+          ? e.response.data
+          : "Failed to create nickname."
+      );
+    } finally {
+      setNicknameSaving(false);
+    }
+  };
+
+  const startEditNickname = (row) => {
+    if (creatingNickname) {
+      setNicknameError("Save or cancel the new nickname row before editing another nickname.");
+      return;
+    }
+
+    setEditingNicknameId(row.nicknameId);
+    setEditingNicknameRow({
+      nicknameText: row.nicknameText ?? "",
+    });
+    setNicknameError("");
+    setNicknameSuccess("");
+  };
+
+  const cancelEditNickname = () => {
+    setEditingNicknameId(null);
+    setEditingNicknameRow(createBlankNicknameRow());
+    setNicknameError("");
+    setNicknameSuccess("");
+  };
+
+  const saveEditNickname = async (nicknameId, existingIsActive) => {
+    const nicknameText = editingNicknameRow.nicknameText.trim();
+
+    if (!nicknameText) {
+      setNicknameError("Nickname is required.");
+      return;
+    }
+
+    if (nicknameText.length > 80) {
+      setNicknameError("Nickname must be 1-80 characters.");
+      return;
+    }
+
+    setNicknameSaving(true);
+    setNicknameError("");
+    setNicknameSuccess("");
+
+    try {
+      await api.put(`/api/teacher/nicknames/${nicknameId}`, {
+        nicknameText,
+        isActive: existingIsActive,
+      });
+
+      setEditingNicknameId(null);
+      setEditingNicknameRow(createBlankNicknameRow());
+      setNicknameSuccess("Nickname updated successfully.");
+      await loadNicknames();
+    } catch (e) {
+      console.error(e);
+      setNicknameError(
+        e?.response?.data && typeof e.response.data === "string"
+          ? e.response.data
+          : "Failed to update nickname."
+      );
+    } finally {
+      setNicknameSaving(false);
+    }
+  };
+
+  const setActiveNickname = async (nicknameId) => {
+    setNicknameSaving(true);
+    setNicknameError("");
+    setNicknameSuccess("");
+
+    try {
+      await api.post("/api/teacher/nicknames/active", {
+        nicknameId,
+      });
+
+      setActiveNicknameId(nicknameId);
+      setNicknameSuccess("Active nickname updated.");
+      await loadNicknames();
+    } catch (e) {
+      console.error(e);
+      setNicknameError(
+        e?.response?.data && typeof e.response.data === "string"
+          ? e.response.data
+          : "Failed to update active nickname."
+      );
+    } finally {
+      setNicknameSaving(false);
+    }
+  };
+
+  const clearActiveNickname = async () => {
+    setNicknameSaving(true);
+    setNicknameError("");
+    setNicknameSuccess("");
+
+    try {
+      await api.post("/api/teacher/nicknames/active", {
+        nicknameId: null,
+      });
+
+      setActiveNicknameId("");
+      setNicknameSuccess("Active nickname cleared.");
+      await loadNicknames();
+    } catch (e) {
+      console.error(e);
+      setNicknameError(
+        e?.response?.data && typeof e.response.data === "string"
+          ? e.response.data
+          : "Failed to clear active nickname."
+      );
+    } finally {
+      setNicknameSaving(false);
+    }
   };
 
   const validateRow = (row) => {
@@ -862,9 +1103,13 @@ export default function AppNavbar() {
                     <Dropdown.Item onClick={() => openCreateUserModal("student")}>
                       Create Student
                     </Dropdown.Item>
+                    {canManageNicknames && (
+                      <Dropdown.Item onClick={openNicknameModal}>
+                        Edit Nickname
+                      </Dropdown.Item>
+                    )}
                   </>
                 )}
-
                 <Dropdown.Divider />
                 <Dropdown.Item onClick={openChangePasswordModal}>
                   Change Password
@@ -1522,6 +1767,206 @@ export default function AppNavbar() {
                 ? "Creating Teacher..."
                 : "Creating Student..."
               : "Save"}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal
+        show={showNicknameModal}
+        onHide={closeNicknameModal}
+        centered
+        backdrop="static"
+        size="lg"
+      >
+        <Modal.Header closeButton>
+          <Modal.Title>Edit Nickname</Modal.Title>
+        </Modal.Header>
+
+        <Modal.Body>
+          {nicknameError && <Alert variant="danger">{nicknameError}</Alert>}
+          {nicknameSuccess && <Alert variant="success">{nicknameSuccess}</Alert>}
+
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <div className="fw-semibold">Your Nicknames</div>
+              <div className="small text-muted">
+                Choose one active nickname to use later when sending direct messages.
+              </div>
+            </div>
+
+            <div className="d-flex gap-2">
+              <Button
+                variant="outline-secondary"
+                size="sm"
+                onClick={clearActiveNickname}
+                disabled={nicknameSaving || nicknameLoading}
+              >
+                Clear Active
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={startCreateNickname}
+                disabled={nicknameSaving || nicknameLoading || creatingNickname}
+              >
+                Add Nickname
+              </Button>
+            </div>
+          </div>
+
+          {nicknameLoading ? (
+            <div className="text-center py-4">
+              <Spinner animation="border" size="sm" className="me-2" />
+              Loading nicknames...
+            </div>
+          ) : (
+            <>
+              {creatingNickname && (
+                <div className="border rounded-3 p-3 mb-3 bg-light">
+                  <div className="fw-semibold mb-2">New Nickname</div>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Nickname</Form.Label>
+                    <Form.Control
+                      value={newNicknameRow.nicknameText}
+                      onChange={(e) =>
+                        setNewNicknameRow((prev) => ({
+                          ...prev,
+                          nicknameText: e.target.value,
+                        }))
+                      }
+                      maxLength={80}
+                      placeholder="Enter nickname"
+                      disabled={nicknameSaving}
+                    />
+                  </Form.Group>
+
+                  <div className="d-flex gap-2">
+                    <Button
+                      variant="success"
+                      size="sm"
+                      onClick={saveCreateNickname}
+                      disabled={nicknameSaving}
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      variant="outline-secondary"
+                      size="sm"
+                      onClick={cancelCreateNickname}
+                      disabled={nicknameSaving}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {nicknames.length === 0 ? (
+                <div className="text-muted small">
+                  No nicknames found yet.
+                </div>
+              ) : (
+                <ListGroup>
+                  {nicknames.map((row) => {
+                    const isEditing = editingNicknameId === row.nicknameId;
+                    const isCurrentActive = activeNicknameId === row.nicknameId;
+
+                    return (
+                      <ListGroup.Item
+                        key={row.nicknameId}
+                        className="d-flex justify-content-between align-items-start gap-3"
+                      >
+                        <div className="flex-grow-1">
+                          {isEditing ? (
+                            <>
+                              <Form.Group className="mb-2">
+                                <Form.Label className="small text-muted">Nickname</Form.Label>
+                                <Form.Control
+                                  value={editingNicknameRow.nicknameText}
+                                  onChange={(e) =>
+                                    setEditingNicknameRow((prev) => ({
+                                      ...prev,
+                                      nicknameText: e.target.value,
+                                    }))
+                                  }
+                                  maxLength={80}
+                                  disabled={nicknameSaving}
+                                />
+                              </Form.Group>
+
+                              <div className="d-flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="success"
+                                  onClick={() => saveEditNickname(row.nicknameId, row.isActive)}
+                                  disabled={nicknameSaving}
+                                >
+                                  Save
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline-secondary"
+                                  onClick={cancelEditNickname}
+                                  disabled={nicknameSaving}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="fw-semibold">{row.nicknameText}</div>
+                              <div className="small text-muted">
+                                Created: {formatDateDisplay(row.createdUtc)}
+                              </div>
+                              <div className="small mt-1">
+                                {isCurrentActive ? (
+                                  <span className="badge text-bg-primary">Active</span>
+                                ) : (
+                                  <span className="badge text-bg-light">Inactive</span>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {!isEditing && (
+                          <div className="d-flex flex-column gap-2">
+                            <Button
+                              size="sm"
+                              variant={isCurrentActive ? "primary" : "outline-primary"}
+                              onClick={() => setActiveNickname(row.nicknameId)}
+                              disabled={nicknameSaving}
+                            >
+                              {isCurrentActive ? "Selected" : "Set Active"}
+                            </Button>
+
+                            <Button
+                              size="sm"
+                              variant="outline-secondary"
+                              onClick={() => startEditNickname(row)}
+                              disabled={nicknameSaving}
+                            >
+                              Edit
+                            </Button>
+                          </div>
+                        )}
+                      </ListGroup.Item>
+                    );
+                  })}
+                </ListGroup>
+              )}
+            </>
+          )}
+        </Modal.Body>
+
+        <Modal.Footer>
+          <Button
+            variant="outline-secondary"
+            onClick={closeNicknameModal}
+            disabled={nicknameSaving}
+          >
+            Close
           </Button>
         </Modal.Footer>
       </Modal>

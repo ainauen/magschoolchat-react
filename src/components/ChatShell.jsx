@@ -21,6 +21,11 @@ export default function ChatShell() {
   const [draft, setDraft] = useState("");
   const [sendBusy, setSendBusy] = useState(false);
 
+  const [nicknameOptions, setNicknameOptions] = useState([]);
+  const [selectedPostAs, setSelectedPostAs] = useState("");
+  const [nicknameBusy, setNicknameBusy] = useState(false);
+  const [nicknameError, setNicknameError] = useState("");
+
   const listEndRef = useRef(null);
 
   const hubRef = useRef(null);
@@ -53,9 +58,14 @@ export default function ChatShell() {
 
   useEffect(() => {
     if (!accessToken) return;
+
     loadRecentThreads();
-     loadRecentRooms();
-  }, [accessToken]);
+    loadRecentRooms();
+
+    if (isTeacher) {
+      loadNicknameOptions();
+    }
+  }, [accessToken, isTeacher]);
 
   useEffect(() => {
     let mounted = true;
@@ -67,27 +77,14 @@ export default function ChatShell() {
       const conn = createChatHubConnection(() => accessToken);
       hubRef.current = conn;
 
-      // conn.on("DirectMessage", (msg) => {
-      //   // msg: { messageId, directThreadId, senderUserId, senderDisplayName, body, createdUtc, attachments }
-      //   if (!msg?.directThreadId) return;
-
-      //   // Use ref (NOT state) so we always compare against the current thread
-      //   if (msg.directThreadId !== activeThreadRef.current) return;
-
-      //   setDmMessages((prev) => {
-      //     if (prev.some((m) => m.messageId === msg.messageId)) return prev; // dedupe
-      //     return [...prev, msg];
-      //   });
-
-      //   scrollToBottom();
-      // });
       conn.on("DirectMessage", (raw) => {
-        // normalize possible PascalCase from SignalR
         const msg = {
           messageId: raw?.messageId ?? raw?.MessageId,
           directThreadId: raw?.directThreadId ?? raw?.DirectThreadId,
           senderUserId: raw?.senderUserId ?? raw?.SenderUserId,
+          postedAsNicknameId: raw?.postedAsNicknameId ?? raw?.PostedAsNicknameId,
           senderDisplayName: raw?.senderDisplayName ?? raw?.SenderDisplayName,
+          postedAsDisplayName: raw?.postedAsDisplayName ?? raw?.PostedAsDisplayName,
           body: raw?.body ?? raw?.Body,
           createdUtc: raw?.createdUtc ?? raw?.CreatedUtc,
           editedUtc: raw?.editedUtc ?? raw?.EditedUtc,
@@ -329,6 +326,55 @@ export default function ChatShell() {
       // hubRef.current = null;
     };
   }, [accessToken]); 
+
+  const loadNicknameOptions = async () => {
+    if (!isTeacher) return;
+
+    setNicknameBusy(true);
+    setNicknameError("");
+
+    try {
+      const res = await api.get("/api/teacher/nicknames");
+      const rows = Array.isArray(res.data?.nicknames) ? res.data.nicknames : [];
+      const activeId = res.data?.activeNicknameId || "";
+
+      const activeRows = rows.filter((x) => x.isActive);
+
+      setNicknameOptions(activeRows);
+      setSelectedPostAs(activeId ? String(activeId) : "");
+    } catch (e) {
+      console.error(e);
+      setNicknameError("Failed to load nickname options.");
+    } finally {
+      setNicknameBusy(false);
+    }
+  };
+
+    const handlePostAsChange = async (e) => {
+    const value = e.target.value;
+
+    setSelectedPostAs(value);
+    setNicknameBusy(true);
+    setNicknameError("");
+
+    try {
+      if (!value) {
+        await api.post("/api/teacher/nicknames/active", {
+          nicknameId: null,
+        });
+      } else {
+        await api.post("/api/teacher/nicknames/active", {
+          nicknameId: value,
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setNicknameError("Failed to update posting identity.");
+      await loadNicknameOptions();
+    } finally {
+      setNicknameBusy(false);
+    }
+  };
 
   const markDirectUnread = (threadId) => {
     if (!threadId) return;
@@ -704,6 +750,7 @@ export default function ChatShell() {
           <div className="chat-content px-3 py-3">
             {dmError && <div className="text-danger mb-2">{dmError}</div>}
             {roomError && <div className="text-danger mb-2">{roomError}</div>}
+            {nicknameError && <div className="text-danger mb-2">{nicknameError}</div>}
 
             {!activeView && (
               <Card className="border-0 shadow-sm rounded-4">
@@ -736,7 +783,7 @@ export default function ChatShell() {
                           <div key={m.messageId} className={`mb-3 ${mine ? "text-end" : ""}`}>
                             <div className="small text-muted">
                               <span className="fw-semibold">
-                                {mine ? "You" : (m.senderDisplayName ?? "User")}
+                                {mine ? "You" : (m.postedAsDisplayName ?? m.senderDisplayName ?? "User")}
                               </span>{" "}
                               · {m.createdUtc ? new Date(m.createdUtc).toLocaleString() : ""}
                             </div>
@@ -804,9 +851,19 @@ export default function ChatShell() {
             <Row className="g-2 align-items-end">
               {isTeacher && (
                 <Col xs={12} md={4} lg={3}>
-                  <Form.Label className="small text-muted mb-1">Post as (Teacher)</Form.Label>
-                  <Form.Select className="rounded-3" disabled>
-                    <option>(nickname dropdown later)</option>
+                  <Form.Label className="small text-muted mb-1">Post as</Form.Label>
+                  <Form.Select
+                    className="rounded-3"
+                    value={selectedPostAs}
+                    onChange={handlePostAsChange}
+                    disabled={nicknameBusy || sendBusy}
+                  >
+                    <option value="">Regular display name</option>
+                    {nicknameOptions.map((n) => (
+                      <option key={n.nicknameId} value={n.nicknameId}>
+                        {n.nicknameText}
+                      </option>
+                    ))}
                   </Form.Select>
                 </Col>
               )}
@@ -854,12 +911,6 @@ export default function ChatShell() {
           <Offcanvas.Title>Chats</Offcanvas.Title>
         </Offcanvas.Header>
         <Offcanvas.Body className="p-0">
-{/*           <Sidebar
-            onOpenDirect={async (u) => {
-              await openDirect(u);
-              setShowSidebarMobile(false);
-            }}
-          /> */}
           <Sidebar
             onOpenDirect={async (u) => {
               await openDirect(u);
