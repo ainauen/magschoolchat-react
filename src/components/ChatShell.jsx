@@ -21,6 +21,9 @@ export default function ChatShell() {
   const [draft, setDraft] = useState("");
   const [sendBusy, setSendBusy] = useState(false);
 
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [fileError, setFileError] = useState("");
+
   const [nicknameOptions, setNicknameOptions] = useState([]);
   const [selectedPostAs, setSelectedPostAs] = useState("");
   const [nicknameBusy, setNicknameBusy] = useState(false);
@@ -90,7 +93,7 @@ export default function ChatShell() {
           editedUtc: raw?.editedUtc ?? raw?.EditedUtc,
           deletedUtc: raw?.deletedUtc ?? raw?.DeletedUtc,
           isSystemMessage: raw?.isSystemMessage ?? raw?.IsSystemMessage,
-          attachments: raw?.attachments ?? raw?.Attachments,
+          attachments: (raw?.attachments ?? raw?.Attachments ?? []).map(normalizeAttachment),
         };
 
         if (!msg?.directThreadId) return;
@@ -169,7 +172,7 @@ export default function ChatShell() {
           postedAsDisplayName: raw?.postedAsDisplayName ?? raw?.PostedAsDisplayName,
           body: raw?.body ?? raw?.Body,
           createdUtc: raw?.createdUtc ?? raw?.CreatedUtc,
-          attachments: raw?.attachments ?? raw?.Attachments,
+          attachments: (raw?.attachments ?? raw?.Attachments ?? []).map(normalizeAttachment),
         };
 
         if (!msg?.roomId) return;
@@ -182,10 +185,18 @@ export default function ChatShell() {
           const list = Array.isArray(prev) ? [...prev] : [];
           const idx = list.findIndex((x) => String(x.roomId) === String(msg.roomId));
 
+          const roomPreview =
+            (msg.body || "").trim() ||
+            (msg.attachments?.length === 1
+              ? `Attachment: ${msg.attachments[0].fileName || "file"}`
+              : msg.attachments?.length > 1
+              ? `Attachments: ${msg.attachments.length} files`
+              : "");
+
           if (idx >= 0) {
             list[idx] = {
               ...list[idx],
-              lastMessagePreview: msg.body,
+              lastMessagePreview: roomPreview,
               lastActivityUtc: msg.createdUtc,
             };
           }
@@ -447,12 +458,148 @@ export default function ChatShell() {
     });
   };
 
+  const normalizeAttachment = (a) => ({
+  attachmentId: a?.attachmentId ?? a?.AttachmentId,
+  fileName: a?.fileName ?? a?.FileName ?? a?.originalFileName ?? a?.OriginalFileName,
+  contentType: a?.contentType ?? a?.ContentType,
+  sizeBytes: a?.sizeBytes ?? a?.SizeBytes,
+  });
+
+  const formatBytes = (bytes) => {
+    if (bytes == null) return "";
+    const size = Number(bytes);
+    if (Number.isNaN(size)) return "";
+
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const onFilesSelected = (e) => {
+    const selected = Array.from(e.target.files || []);
+
+    setFileError("");
+
+    if (selected.length === 0) return;
+
+    setPendingFiles((prev) => {
+      const combined = [...prev, ...selected];
+
+      if (combined.length > 10) {
+        setFileError("You can attach up to 10 files per message.");
+        return combined.slice(0, 10);
+      }
+
+      return combined;
+    });
+
+    e.target.value = "";
+  };
+
+  const removePendingFile = (idx) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const clearComposer = () => {
+    setDraft("");
+    setPendingFiles([]);
+    setFileError("");
+  };
+
+  const uploadPendingFiles = async () => {
+    if (pendingFiles.length === 0) return [];
+
+    if (pendingFiles.length > 10) {
+      throw new Error("Too many files.");
+    }
+
+    const endpoint =
+      activeView === "room"
+        ? `/api/rooms/${roomId}/attachments`
+        : activeView === "direct"
+        ? `/api/direct/${directThreadId}/attachments`
+        : null;
+
+    if (!endpoint) throw new Error("No chat selected.");
+
+    const uploaded = [];
+
+    for (const file of pendingFiles) {
+      const fd = new FormData();
+      fd.append("file", file);
+
+      const res = await api.post(endpoint, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      uploaded.push(normalizeAttachment(res.data));
+    }
+
+    return uploaded;
+  };
+
+  const downloadAttachment = async (attachment) => {
+    const att = normalizeAttachment(attachment);
+    if (!att.attachmentId) return;
+
+    try {
+      const res = await api.get(`/api/attachments/${att.attachmentId}/download`, {
+        responseType: "blob",
+      });
+
+      const blobUrl = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+
+      link.href = blobUrl;
+      link.download = att.fileName || "attachment";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      console.error(e);
+      setFileError("Failed to download attachment.");
+    }
+  };
+
+  const renderAttachments = (attachments, mine = false) => {
+    const list = Array.isArray(attachments)
+      ? attachments.map(normalizeAttachment).filter((a) => a.attachmentId)
+      : [];
+
+    if (list.length === 0) return null;
+
+    return (
+      <div className="mt-2 d-flex flex-column gap-1">
+        {list.map((a) => (
+          <div
+            key={a.attachmentId}
+            className={`d-flex ${mine ? "justify-content-end" : "justify-content-start"}`}
+          >
+            <Button
+              variant="outline-secondary"
+              size="sm"
+              className="rounded-3"
+              onClick={() => downloadAttachment(a)}
+            >
+              📎 {a.fileName || "Attachment"}
+              {a.sizeBytes ? ` (${formatBytes(a.sizeBytes)})` : ""}
+            </Button>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const sendRoom = async () => {
     const body = draft.trim();
-    if (!roomId || body.length === 0) return;
+
+    if (!roomId || (body.length === 0 && pendingFiles.length === 0)) return;
 
     setSendBusy(true);
     setRoomError("");
+    setFileError("");
 
     try {
       const conn = hubRef.current;
@@ -460,8 +607,12 @@ export default function ChatShell() {
         throw new Error("Chat connection is not ready.");
       }
 
-      await conn.invoke("SendRoomMessage", roomId, body, []);
-      setDraft("");
+      const uploadedAttachments = await uploadPendingFiles();
+      const attachmentIds = uploadedAttachments.map((a) => a.attachmentId);
+
+      await conn.invoke("SendRoomMessage", roomId, body, attachmentIds);
+
+      clearComposer();
     } catch (e) {
       console.error(e);
       setRoomError("Failed to send room message.");
@@ -498,7 +649,7 @@ export default function ChatShell() {
 
       await loadRoomHistory(rid);
 
-      setDraft("");
+      clearComposer();
       scrollToBottom();
     } catch (e) {
       console.error(e);
@@ -511,7 +662,11 @@ export default function ChatShell() {
   const loadRoomHistory = async (rid) => {
     const res = await api.get(`/api/rooms/${rid}/messages`, { params: { take: 50 } });
     const raw = res.data?.items || [];
-    const ordered = [...raw].reverse();
+    const ordered = [...raw].reverse().map((m) => ({
+      ...m,
+      attachments: (m.attachments ?? m.Attachments ?? []).map(normalizeAttachment),
+    }));
+
     setRoomMessages(ordered);
   };
 
@@ -567,7 +722,11 @@ export default function ChatShell() {
     const msgsRes = await api.get(`/api/direct/${tid}/messages`, { params: { take: 50 } });
     const raw = msgsRes.data || [];
     // API returns newest-first; reverse for chat display
-    const ordered = [...raw].reverse();
+    const ordered = [...raw].reverse().map((m) => ({
+      ...m,
+      attachments: (m.attachments ?? m.Attachments ?? []).map(normalizeAttachment),
+    }));
+
     setDmMessages(ordered);
   };
 
@@ -618,7 +777,7 @@ export default function ChatShell() {
       await loadRecentThreads();
 
       // clear composer on open
-      setDraft("");
+      clearComposer();
       scrollToBottom();
     } catch (e) {
       setDmError("Failed to open direct message.");
@@ -629,54 +788,25 @@ export default function ChatShell() {
 
   const sendDirect = async () => {
     const body = draft.trim();
-    if (!directThreadId || body.length === 0) return;
+
+    if (!directThreadId || (body.length === 0 && pendingFiles.length === 0)) return;
 
     setSendBusy(true);
     setDmError("");
+    setFileError("");
 
     try {
-      // POST /api/direct/{directThreadId}/messages { body }
-      const res = await api.post(`/api/direct/${directThreadId}/messages`, { body });
+      const uploadedAttachments = await uploadPendingFiles();
+      const attachmentIds = uploadedAttachments.map((a) => a.attachmentId);
 
-      setDraft("");
+      await api.post(`/api/direct/${directThreadId}/messages`, {
+        body,
+        attachmentIds,
+      });
 
-      // const messageId = res.data?.messageId;
-      // const createdUtc = res.data?.createdUtc;
-
-      // // Optimistically append locally (fast UI)
-      // setDmMessages((prev) => {
-      //   const list = Array.isArray(prev) ? prev : [];
-
-      //   if (
-      //     messageId != null &&
-      //     list.some((m) => String(m.messageId) === String(messageId))
-      //   ) {
-      //     return list; // SignalR already inserted it first
-      //   }
-
-      //   return [
-      //     ...list,
-      //     {
-      //       messageId: messageId ?? `temp-${Date.now()}`,
-      //       directThreadId,
-      //       senderUserId: me?.userId,
-      //       body,
-      //       createdUtc: createdUtc ?? new Date().toISOString(),
-      //       editedUtc: null,
-      //       deletedUtc: null,
-      //       isSystemMessage: false,
-      //     },
-      //   ];
-      // });
-
-      // setDraft("");
-      // scrollToBottom();
-
-      // Optional safety: re-fetch to ensure authoritative order/timestamps
-      // (uncomment if you want absolute correctness early on)
-      // await loadHistory(directThreadId);
-      // scrollToBottom();
+      clearComposer();
     } catch (e) {
+      console.error(e);
       setDmError("Failed to send message.");
     } finally {
       setSendBusy(false);
@@ -787,7 +917,10 @@ export default function ChatShell() {
                               </span>{" "}
                               · {m.createdUtc ? new Date(m.createdUtc).toLocaleString() : ""}
                             </div>
-                            <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div>
+                            {m.body && (
+                              <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div>
+                            )}
+                            {renderAttachments(m.attachments, mine)}
                           </div>
                         );
                       })
@@ -829,7 +962,10 @@ export default function ChatShell() {
                               </span>{" "}
                               · {m.createdUtc ? new Date(m.createdUtc).toLocaleString() : ""}
                             </div>
-                            <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div>
+                            {m.body && (
+                              <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div>
+                            )}
+                            {renderAttachments(m.attachments, mine)}
                           </div>
                         );
                       })
@@ -868,7 +1004,7 @@ export default function ChatShell() {
                 </Col>
               )}
 
-              <Col xs={12} md={isTeacher ? 6 : 9} lg={isTeacher ? 7 : 9}>
+              <Col xs={12} md={isTeacher ? 5 : 8} lg={isTeacher ? 6 : 8}>
                 <Form.Label className="small text-muted mb-1">Message</Form.Label>
                 <Form.Control
                   as="textarea"
@@ -886,19 +1022,62 @@ export default function ChatShell() {
                   onKeyDown={onComposerKeyDown}
                   disabled={!activeView || sendBusy}
                 />
+                {pendingFiles.length > 0 && (
+                  <div className="mt-2 d-flex flex-wrap gap-2">
+                    {pendingFiles.map((f, idx) => (
+                      <Badge
+                        key={`${f.name}-${idx}`}
+                        bg="light"
+                        text="dark"
+                        className="border rounded-pill px-2 py-2"
+                      >
+                        {f.name}{" "}
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-link p-0 ms-1 text-danger"
+                          onClick={() => removePendingFile(idx)}
+                          disabled={sendBusy}
+                        >
+                          ×
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {fileError && (
+                  <div className="small text-danger mt-1">{fileError}</div>
+                )}
               </Col>
 
-              <Col xs={12} md={2} lg={2} className="d-grid">
-                <Button
-                  className="rounded-3 fw-semibold"
-                  onClick={() => {
-                    if (activeView === "direct") sendDirect();
-                    else if (activeView === "room") sendRoom();
-                  }}
-                  disabled={!activeView || sendBusy || draft.trim().length === 0}
-                >
-                  {sendBusy ? "Sending…" : "Send"}
-                </Button>
+              <Col xs={12} md={3} lg={3}>
+                <div className="d-grid gap-2">
+                  <Form.Label className="btn btn-outline-secondary rounded-3 mb-0">
+                    Attach
+                    <Form.Control
+                      type="file"
+                      multiple
+                      className="d-none"
+                      onChange={onFilesSelected}
+                      disabled={!activeView || sendBusy}
+                    />
+                  </Form.Label>
+
+                  <Button
+                    className="rounded-3 fw-semibold"
+                    onClick={() => {
+                      if (activeView === "direct") sendDirect();
+                      else if (activeView === "room") sendRoom();
+                    }}
+                    disabled={
+                      !activeView ||
+                      sendBusy ||
+                      (draft.trim().length === 0 && pendingFiles.length === 0)
+                    }
+                  >
+                    {sendBusy ? "Sending…" : "Send"}
+                  </Button>
+                </div>
               </Col>
             </Row>
           </div>
