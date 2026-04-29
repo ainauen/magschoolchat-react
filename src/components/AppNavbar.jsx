@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import EditMembersModal from "./EditMembersModal";
 import {
   Alert,
   Button,
@@ -77,6 +78,7 @@ export default function AppNavbar() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [showEditMembersModal, setShowEditMembersModal] = useState(false);
 
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [editingRow, setEditingRow] = useState(createBlankRow());
@@ -312,6 +314,14 @@ export default function AppNavbar() {
     } finally {
       setLoadingSessions(false);
     }
+  };
+
+  const openEditMembersModal = () => {
+    setShowEditMembersModal(true);
+  };
+
+  const closeEditMembersModal = () => {
+    setShowEditMembersModal(false);
   };
 
   const openChangePasswordModal = () => {
@@ -1095,6 +1105,9 @@ export default function AppNavbar() {
                     <Dropdown.Item onClick={openClassMembersModal}>
                       Class Members
                     </Dropdown.Item>
+                    <Dropdown.Item onClick={openEditMembersModal}>
+                      Edit Members
+                    </Dropdown.Item>
                     {isAdmin && (
                       <Dropdown.Item onClick={() => openCreateUserModal("teacher")}>
                         Create Teacher
@@ -1702,6 +1715,13 @@ export default function AppNavbar() {
           </Button>
         </Modal.Footer>
       </Modal>
+
+      <EditMembersModal
+        show={showEditMembersModal}
+        onHide={closeEditMembersModal}
+        api={api}
+        isAdmin={isAdmin}
+      />
 
       <Modal
         show={showCreateUserModal}
