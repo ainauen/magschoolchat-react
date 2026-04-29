@@ -164,11 +164,13 @@ export default function ChatShell() {
       });
 
       conn.on("RoomMessage", (raw) => {
+
         const msg = {
           messageId: raw?.messageId ?? raw?.MessageId,
           roomId: raw?.roomId ?? raw?.RoomId,
           senderUserId: raw?.senderUserId ?? raw?.SenderUserId,
           postedAsNicknameId: raw?.postedAsNicknameId ?? raw?.PostedAsNicknameId,
+          senderDisplayName: raw?.senderDisplayName ?? raw?.SenderDisplayName,
           postedAsDisplayName: raw?.postedAsDisplayName ?? raw?.PostedAsDisplayName,
           body: raw?.body ?? raw?.Body,
           createdUtc: raw?.createdUtc ?? raw?.CreatedUtc,
@@ -592,6 +594,18 @@ export default function ChatShell() {
     );
   };
 
+  const getMessageDisplayName = (m) => {
+    return (
+      m?.postedAsDisplayName ||
+      m?.senderDisplayName ||
+      m?.PostedAsDisplayName ||
+      m?.SenderDisplayName ||
+      (String(m?.senderUserId ?? m?.SenderUserId) === String(me?.userId)
+        ? me?.displayName || me?.email || "User"
+        : "User")
+    );
+  };
+
   const sendRoom = async () => {
     const body = draft.trim();
 
@@ -664,6 +678,14 @@ export default function ChatShell() {
     const raw = res.data?.items || [];
     const ordered = [...raw].reverse().map((m) => ({
       ...m,
+      messageId: m.messageId ?? m.MessageId,
+      roomId: m.roomId ?? m.RoomId,
+      senderUserId: m.senderUserId ?? m.SenderUserId,
+      postedAsNicknameId: m.postedAsNicknameId ?? m.PostedAsNicknameId,
+      senderDisplayName: m.senderDisplayName ?? m.SenderDisplayName,
+      postedAsDisplayName: m.postedAsDisplayName ?? m.PostedAsDisplayName,
+      body: m.body ?? m.Body,
+      createdUtc: m.createdUtc ?? m.CreatedUtc,
       attachments: (m.attachments ?? m.Attachments ?? []).map(normalizeAttachment),
     }));
 
@@ -724,6 +746,17 @@ export default function ChatShell() {
     // API returns newest-first; reverse for chat display
     const ordered = [...raw].reverse().map((m) => ({
       ...m,
+      messageId: m.messageId ?? m.MessageId,
+      directThreadId: m.directThreadId ?? m.DirectThreadId,
+      senderUserId: m.senderUserId ?? m.SenderUserId,
+      postedAsNicknameId: m.postedAsNicknameId ?? m.PostedAsNicknameId,
+      senderDisplayName: m.senderDisplayName ?? m.SenderDisplayName,
+      postedAsDisplayName: m.postedAsDisplayName ?? m.PostedAsDisplayName,
+      body: m.body ?? m.Body,
+      createdUtc: m.createdUtc ?? m.CreatedUtc,
+      editedUtc: m.editedUtc ?? m.EditedUtc,
+      deletedUtc: m.deletedUtc ?? m.DeletedUtc,
+      isSystemMessage: m.isSystemMessage ?? m.IsSystemMessage,
       attachments: (m.attachments ?? m.Attachments ?? []).map(normalizeAttachment),
     }));
 
@@ -907,14 +940,17 @@ export default function ChatShell() {
                     {dmMessages.length === 0 ? (
                       <div className="text-muted">No messages yet.</div>
                     ) : (
-                      dmMessages.map((m) => {
-                        const mine = me?.userId && m.senderUserId === me.userId;
-                        return (
-                          <div key={m.messageId} className={`mb-3 ${mine ? "text-end" : ""}`}>
-                            <div className="small text-muted">
-                              <span className="fw-semibold">
-                                {mine ? "You" : (m.postedAsDisplayName ?? m.senderDisplayName ?? "User")}
-                              </span>{" "}
+                        dmMessages.map((m) => {
+                          const mine =
+                            me?.userId &&
+                            String(m.senderUserId ?? m.SenderUserId) === String(me.userId);
+
+                          return (
+                            <div key={m.messageId} className={`mb-3 ${mine ? "text-end" : ""}`}>
+                              <div className="small text-muted">
+                                <span className="fw-semibold">
+                                  {getMessageDisplayName(m)}
+                                </span>{" "}
                               · {m.createdUtc ? new Date(m.createdUtc).toLocaleString() : ""}
                             </div>
                             {m.body && (
@@ -952,14 +988,17 @@ export default function ChatShell() {
                     {roomMessages.length === 0 ? (
                       <div className="text-muted">No messages yet.</div>
                     ) : (
-                      roomMessages.map((m) => {
-                        const mine = me?.userId && m.senderUserId === me.userId;
-                        return (
-                          <div key={m.messageId} className={`mb-3 ${mine ? "text-end" : ""}`}>
-                            <div className="small text-muted">
-                              <span className="fw-semibold">
-                                {mine ? "You" : (m.postedAsDisplayName ?? "User")}
-                              </span>{" "}
+                        roomMessages.map((m) => {
+                          const mine =
+                            me?.userId &&
+                            String(m.senderUserId ?? m.SenderUserId) === String(me.userId);
+
+                          return (
+                            <div key={m.messageId} className={`mb-3 ${mine ? "text-end" : ""}`}>
+                              <div className="small text-muted">
+                                <span className="fw-semibold">
+                                  {getMessageDisplayName(m)}
+                                </span>{" "}
                               · {m.createdUtc ? new Date(m.createdUtc).toLocaleString() : ""}
                             </div>
                             {m.body && (
