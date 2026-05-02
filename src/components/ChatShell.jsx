@@ -424,16 +424,16 @@ export default function ChatShell() {
       return next;
     });
   };
-
-  const createRoom = async ({ sessionId, name, roomType, users }) => {
+  const createRoom = async ({ sessionId, classId, name, roomType, users }) => {
     const trimmedName = (name || "").trim();
 
+    if (!classId) throw new Error("Class is required.");
     if (!sessionId) throw new Error("Session is required.");
     if (!trimmedName) throw new Error("Room name is required.");
 
     const createRes = await api.post("/api/rooms", {
       sessionId,
-      classId: null,
+      classId,
       name: trimmedName,
       roomType
     });
@@ -455,6 +455,7 @@ export default function ChatShell() {
       name: trimmedName,
       roomType,
       sessionId,
+      classId,
       lastMessagePreview: null,
       lastActivityUtc: null
     });

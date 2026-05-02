@@ -33,6 +33,9 @@ export default function Sidebar({
   const [activeSessions, setActiveSessions] = useState([]);
   const [sessionsBusy, setSessionsBusy] = useState(false);
   const [sessionId, setSessionId] = useState("");
+  const [classes, setClasses] = useState([]);
+  const [classesBusy, setClassesBusy] = useState(false);
+  const [classId, setClassId] = useState("");
 
   const [memberQuery, setMemberQuery] = useState("");
   const [memberBusy, setMemberBusy] = useState(false);
@@ -100,6 +103,54 @@ export default function Sidebar({
     [selectedUsers]
   );
 
+  useEffect(() => {
+    if (!showCreateRoom || !sessionId) {
+      setClasses([]);
+      setClassId("");
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadClasses = async () => {
+      setClassesBusy(true);
+      setCreateError("");
+
+      try {
+        const res = await api.get("/api/classes", {
+          params: { sessionId }
+        });
+
+        if (cancelled) return;
+
+        const list = Array.isArray(res.data) ? res.data : [];
+        setClasses(list);
+
+        if (list.length === 1) {
+          setClassId(list[0].classId);
+        } else {
+          setClassId("");
+        }
+      } catch {
+        if (!cancelled) {
+          setClasses([]);
+          setClassId("");
+          setCreateError("Failed to load classes for the selected session.");
+        }
+      } finally {
+        if (!cancelled) {
+          setClassesBusy(false);
+        }
+      }
+    };
+
+    loadClasses();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showCreateRoom, sessionId, api]);
+
   const filteredMemberResults = useMemo(() => {
     return memberResults.filter(
       (u) => !selectedUserIds.has(String(u.userId))
@@ -123,8 +174,11 @@ export default function Sidebar({
     setSelectedUsers([]);
     setCreateError("");
     setSessionId("");
+    setClassId("");
+    setClasses([]);
     setActiveSessions([]);
     setSessionsBusy(false);
+    setClassesBusy(false);
     setMemberQuery("");
     setMemberResults([]);
     setMemberError("");
@@ -165,6 +219,11 @@ export default function Sidebar({
       return;
     }
 
+    if (!classId) {
+      setCreateError("Please select a class.");
+      return;
+    }
+
     if (!name) {
       setCreateError("Room name is required.");
       return;
@@ -181,6 +240,7 @@ export default function Sidebar({
     try {
       await onCreateRoom?.({
         sessionId,
+        classId,
         name,
         roomType: 1,
         users: selectedUsers
@@ -228,7 +288,6 @@ export default function Sidebar({
               New Room
             </Button>
           )}
-
           {busy && (
             <div className="ms-auto d-flex align-items-center gap-2 text-muted small">
               <Spinner animation="border" size="sm" />
@@ -274,7 +333,16 @@ export default function Sidebar({
                   action
                   onClick={() => onOpenRoom?.(r)}
                 >
-                  <div className={unread ? "fw-bold" : "fw-semibold"}>{r.name}</div>
+                  <div className={unread ? "fw-bold" : "fw-semibold"}>
+                    {r.name}
+                  </div>
+
+                  {r.className && (
+                    <div className="small text-muted">
+                      {r.className}
+                    </div>
+                  )}
+
                   <div className={`small text-truncate ${unread ? "fw-bold" : "text-muted"}`}>
                     {r.lastMessagePreview || "No messages yet."}
                   </div>
@@ -341,7 +409,11 @@ export default function Sidebar({
             <Form.Label>Session</Form.Label>
             <Form.Select
               value={sessionId}
-              onChange={(e) => setSessionId(e.target.value)}
+              onChange={(e) => {
+                  setSessionId(e.target.value);
+                  setClassId("");
+                  setClasses([]);
+                }}
               disabled={sessionsBusy || createBusy}
             >
               <option value="">
@@ -353,6 +425,35 @@ export default function Sidebar({
                 </option>
               ))}
             </Form.Select>
+          </Form.Group>
+
+          <Form.Group className="mb-3">
+            <Form.Label>Class</Form.Label>
+            <Form.Select
+              value={classId}
+              onChange={(e) => setClassId(e.target.value)}
+              disabled={!sessionId || classesBusy || createBusy}
+            >
+              <option value="">
+                {!sessionId
+                  ? "Select a session first"
+                  : classesBusy
+                    ? "Loading classes..."
+                    : "Select a class"}
+              </option>
+
+              {classes.map((c) => (
+                <option key={c.classId} value={c.classId}>
+                  {c.name}
+                </option>
+              ))}
+            </Form.Select>
+
+            {sessionId && !classesBusy && classes.length === 0 && (
+              <div className="small text-muted mt-1">
+                No classes found for this session.
+              </div>
+            )}
           </Form.Group>
 
           <Form.Group className="mb-3">
@@ -455,7 +556,7 @@ export default function Sidebar({
           <Button
             variant="primary"
             onClick={handleCreateRoom}
-            disabled={createBusy || sessionsBusy}
+            disabled={createBusy || sessionsBusy || classesBusy || !sessionId || !classId}
           >
             {createBusy ? "Creating..." : "Create Room"}
           </Button>
