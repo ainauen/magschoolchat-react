@@ -4,7 +4,7 @@ import Sidebar from "./Sidebar";
 import { useAuth } from "../auth/AuthContext";
 import { createChatHubConnection } from "../signalr/chatHub";
 
-export default function ChatShell() {
+export default function ChatShell({ archiveRefreshKey = 0 }) {
   const { api, me, hasRole, accessToken } = useAuth();
   const isTeacher = hasRole("Teacher") || hasRole("Administrator");
 
@@ -43,6 +43,7 @@ export default function ChatShell() {
   const canManageRooms = hasRole("Teacher") || hasRole("Administrator");
 
   const [roomId, setRoomId] = useState("");
+  const [selectedRoom, setSelectedRoom] = useState(null);
   const [roomMessages, setRoomMessages] = useState([]);
   const [roomBusy, setRoomBusy] = useState(false);
   const [roomError, setRoomError] = useState("");
@@ -50,6 +51,12 @@ export default function ChatShell() {
   const [recentRooms, setRecentRooms] = useState([]);
   const [unreadDirectThreadIds, setUnreadDirectThreadIds] = useState(() => new Set());
   const [unreadRoomIds, setUnreadRoomIds] = useState(() => new Set());
+
+  const [archivedRooms, setArchivedRooms] = useState([]);
+  const [archivedRoomsBusy, setArchivedRoomsBusy] = useState(false);
+  const [archivedRoomsError, setArchivedRoomsError] = useState("");
+  const canViewArchivedRooms =
+    hasRole("Teacher") || hasRole("Administrator");
 
   const activeRoomRef = useRef("");
  
@@ -59,16 +66,147 @@ export default function ChatShell() {
     });
   };
 
+  const loadArchivedRooms = async () => {
+    if (!canViewArchivedRooms) {
+      setArchivedRooms([]);
+      return;
+    }
+
+    setArchivedRoomsBusy(true);
+    setArchivedRoomsError("");
+
+    try {
+      const res = await api.get("/api/archive/rooms");
+      const list = Array.isArray(res.data) ? res.data : [];
+
+      list.sort(
+        (a, b) =>
+          new Date(b.lastActivityUtc || b.archivedUtc || 0) -
+          new Date(a.lastActivityUtc || a.archivedUtc || 0)
+      );
+
+      setArchivedRooms(list.map((r) => ({ ...r, isArchived: true })));
+    } catch (e) {
+      console.error(e);
+      setArchivedRoomsError("Failed to load archived rooms.");
+    } finally {
+      setArchivedRoomsBusy(false);
+    }
+  };
+
   useEffect(() => {
     if (!accessToken) return;
 
     loadRecentThreads();
     loadRecentRooms();
 
+    if (canViewArchivedRooms) {
+      loadArchivedRooms();
+    }
+
     if (isTeacher) {
       loadNicknameOptions();
     }
   }, [accessToken, isTeacher]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    if (archiveRefreshKey === 0) return;
+
+    const refreshAfterArchive = async () => {
+      const [roomsResult, threadsResult, archivedResult] = await Promise.allSettled([
+        api.get("/api/rooms"),
+        api.get("/api/direct/threads", { params: { take: 30 } }),
+        isTeacher ? api.get("/api/archive/rooms") : Promise.resolve({ data: [] }),
+      ]);
+
+      const activeRooms =
+        roomsResult.status === "fulfilled" && Array.isArray(roomsResult.value.data)
+          ? roomsResult.value.data
+          : [];
+
+      const activeThreads =
+        threadsResult.status === "fulfilled" && Array.isArray(threadsResult.value.data)
+          ? threadsResult.value.data
+          : [];
+
+      const archived =
+        archivedResult.status === "fulfilled" && Array.isArray(archivedResult.value.data)
+          ? archivedResult.value.data.map((r) => ({ ...r, isArchived: true }))
+          : [];
+
+      activeRooms.sort(
+        (a, b) =>
+          new Date(b.lastActivityUtc || 0) - new Date(a.lastActivityUtc || 0)
+      );
+
+      archived.sort(
+        (a, b) =>
+          new Date(b.lastActivityUtc || b.archivedUtc || 0) -
+          new Date(a.lastActivityUtc || a.archivedUtc || 0)
+      );
+
+      setRecentRooms(activeRooms);
+      setRecentThreads(activeThreads);
+      setArchivedRooms(archived);
+
+      setUnreadRoomIds(
+        new Set(
+          activeRooms
+            .filter((r) => r.isUnread)
+            .map((r) => String(r.roomId))
+        )
+      );
+
+      setUnreadDirectThreadIds(
+        new Set(
+          activeThreads
+            .filter((t) => t.isUnread)
+            .map((t) => String(t.directThreadId))
+        )
+      );
+
+      if (activeView === "direct") {
+        setActiveView(null);
+        setActiveTitle("Select a chat");
+        setDirectThreadId("");
+        setDmMessages([]);
+        activeThreadRef.current = "";
+        clearComposer();
+        return;
+      }
+
+      if (activeView === "room" && roomId) {
+        const activeRoom = activeRooms.find(
+          (r) => String(r.roomId) === String(roomId)
+        );
+
+        const archivedRoom = archived.find(
+          (r) => String(r.roomId) === String(roomId)
+        );
+
+        if (archivedRoom) {
+          setSelectedRoom(archivedRoom);
+          setActiveTitle(archivedRoom.name || "Room");
+          activeRoomRef.current = "";
+          clearComposer();
+        } else if (activeRoom) {
+          setSelectedRoom(activeRoom);
+          activeRoomRef.current = activeRoom.roomId;
+        } else {
+          setActiveView(null);
+          setActiveTitle("Select a chat");
+          setRoomId("");
+          setSelectedRoom(null);
+          setRoomMessages([]);
+          activeRoomRef.current = "";
+          clearComposer();
+        }
+      }
+    };
+
+    refreshAfterArchive();
+  }, [archiveRefreshKey]);
 
   useEffect(() => {
     let mounted = true;
@@ -340,6 +478,25 @@ export default function ChatShell() {
     };
   }, [accessToken]); 
 
+  // const handleArchiveChanged = async () => {
+  //   await Promise.all([
+  //     loadRecentRooms(),
+  //     loadRecentThreads(),
+  //     canViewArchivedRooms ? loadArchivedRooms() : Promise.resolve()
+  //   ]);
+
+  //   if (activeView === "room" && selectedRoom?.isArchived) {
+  //     // optional: leave it open if teacher/admin is viewing archived room
+  //   }
+
+  //   if (activeView === "direct") {
+  //     setActiveView(null);
+  //     setDirectThreadId(null);
+  //     setDirectMessages([]);
+  //     setSelectedDirectUser(null);
+  //   }
+  // };
+
   const loadNicknameOptions = async () => {
     if (!isTeacher) return;
 
@@ -610,6 +767,11 @@ export default function ChatShell() {
   const sendRoom = async () => {
     const body = draft.trim();
 
+    if (selectedRoom?.isArchived) {
+      setRoomError("This room is archived and is read-only.");
+      return;
+    }
+
     if (!roomId || (body.length === 0 && pendingFiles.length === 0)) return;
 
     setSendBusy(true);
@@ -647,18 +809,22 @@ export default function ChatShell() {
       setActiveView("room");
       setActiveTitle(room.name || "Room");
       setRoomId(rid);
-      activeRoomRef.current = rid;
-      activeThreadRef.current ="";
+      setSelectedRoom(room);
+      activeRoomRef.current = room.isArchived ? "" : rid;
+      activeThreadRef.current = "";
       clearRoomUnread(rid);
 
-      try {
-        await api.post(`/api/rooms/${rid}/read`);
-      } catch (e) {
-        console.warn("Failed to mark room as read.", e);
+      if (!room.isArchived) {
+        try {
+          await api.post(`/api/rooms/${rid}/read`);
+        } catch (e) {
+          console.warn("Failed to mark room as read.", e);
+        }
       }
 
       const conn = hubRef.current;
-      if (conn?.state === "Connected") {
+
+      if (!room.isArchived && conn?.state === "Connected") {
         await conn.invoke("JoinRoom", rid);
       }
 
@@ -778,6 +944,7 @@ export default function ChatShell() {
       setActiveView("direct");
       setActiveTitle(user.displayName || user.email);
       setDirectThreadId(tid);
+      setSelectedRoom(null);
       // Track active thread immediately (ref is instant, state is async)
       activeThreadRef.current = tid;
       activeRoomRef.current = "";
@@ -871,17 +1038,20 @@ export default function ChatShell() {
         {/* Desktop sidebar */}
         <Col lg={3} className="d-none d-lg-block border-end chat-sidebar">
           {/* <Sidebar onOpenDirect={openDirect} /> */}
-          <Sidebar
-            onOpenDirect={openDirect}
-            onOpenRoom={openRoom}
-            onCreateRoom={createRoom}
-            recentThreads={recentThreads}
-            recentRooms={recentRooms}
-            recentBusy={recentBusy}
-            recentError={recentError}
-            unreadDirectThreadIds={unreadDirectThreadIds}
-            unreadRoomIds={unreadRoomIds}
-          />
+      <Sidebar
+        onOpenDirect={openDirect}
+        onOpenRoom={openRoom}
+        onCreateRoom={createRoom}
+        recentThreads={recentThreads}
+        recentRooms={recentRooms}
+        archivedRooms={archivedRooms}
+        archivedRoomsBusy={archivedRoomsBusy}
+        archivedRoomsError={archivedRoomsError}
+        recentBusy={recentBusy}
+        recentError={recentError}
+        unreadDirectThreadIds={unreadDirectThreadIds}
+        unreadRoomIds={unreadRoomIds}
+      />
         </Col>
 
         {/* Main */}
@@ -1024,6 +1194,11 @@ export default function ChatShell() {
 
           {/* Composer enabled for Step 2 */}
           <div className="chat-composer border-top px-3 py-3">
+            {activeView === "room" && selectedRoom?.isArchived && (
+              <div className="alert alert-secondary py-2 mb-3">
+                This room is archived and read-only.
+              </div>
+            )}
             <Row className="g-2 align-items-end">
               {isTeacher && (
                 <Col xs={12} md={4} lg={3}>
@@ -1060,7 +1235,7 @@ export default function ChatShell() {
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={onComposerKeyDown}
-                  disabled={!activeView || sendBusy}
+                  disabled={!activeView || sendBusy || (activeView === "room" && selectedRoom?.isArchived)}
                 />
                 {pendingFiles.length > 0 && (
                   <div className="mt-2 d-flex flex-wrap gap-2">
@@ -1099,7 +1274,7 @@ export default function ChatShell() {
                       multiple
                       className="d-none"
                       onChange={onFilesSelected}
-                      disabled={!activeView || sendBusy}
+                      disabled={!activeView || sendBusy || (activeView === "room" && selectedRoom?.isArchived)}
                     />
                   </Form.Label>
 
@@ -1112,6 +1287,7 @@ export default function ChatShell() {
                     disabled={
                       !activeView ||
                       sendBusy ||
+                      (activeView === "room" && selectedRoom?.isArchived) ||
                       (draft.trim().length === 0 && pendingFiles.length === 0)
                     }
                   >
@@ -1130,23 +1306,26 @@ export default function ChatShell() {
           <Offcanvas.Title>Chats</Offcanvas.Title>
         </Offcanvas.Header>
         <Offcanvas.Body className="p-0">
-          <Sidebar
-            onOpenDirect={async (u) => {
-              await openDirect(u);
-              setShowSidebarMobile(false);
-            }}
-            onOpenRoom={async (r) => {
-              await openRoom(r);
-              setShowSidebarMobile(false);
-            }}
-            onCreateRoom={createRoom}
-            recentThreads={recentThreads}
-            recentRooms={recentRooms}
-            recentBusy={recentBusy}
-            recentError={recentError}
-            unreadDirectThreadIds={unreadDirectThreadIds}
-            unreadRoomIds={unreadRoomIds}
-          />
+        <Sidebar
+          onOpenDirect={async (u) => {
+            await openDirect(u);
+            setShowSidebarMobile(false);
+          }}
+          onOpenRoom={async (r) => {
+            await openRoom(r);
+            setShowSidebarMobile(false);
+          }}
+          onCreateRoom={createRoom}
+          recentThreads={recentThreads}
+          recentRooms={recentRooms}
+          archivedRooms={archivedRooms}
+          archivedRoomsBusy={archivedRoomsBusy}
+          archivedRoomsError={archivedRoomsError}
+          recentBusy={recentBusy}
+          recentError={recentError}
+          unreadDirectThreadIds={unreadDirectThreadIds}
+          unreadRoomIds={unreadRoomIds}
+        />
         </Offcanvas.Body>
       </Offcanvas>
     </Container>

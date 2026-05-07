@@ -3,21 +3,30 @@ import { Button, Form, ListGroup, Spinner, Modal } from "react-bootstrap";
 import { useAuth } from "../auth/AuthContext";
 
 export default function Sidebar({
-  onOpenDirect,
-  onOpenRoom,
-  onCreateRoom,
-  recentThreads = [],
-  recentRooms = [],
-  recentBusy,
-  recentError,
-  unreadDirectThreadIds = new Set(),
-  unreadRoomIds = new Set()
-}) {
+    onOpenDirect,
+    onOpenRoom,
+    onCreateRoom,
+    recentThreads = [],
+    recentRooms = [],
+    archivedRooms = [],
+    archivedRoomsBusy = false,
+    archivedRoomsError = "",
+    recentBusy,
+    recentError,
+    unreadDirectThreadIds = new Set(),
+    unreadRoomIds = new Set()
+  }) {
+    
   const { api, hasRole } = useAuth();
   const canManageRooms = hasRole("Teacher") || hasRole("Administrator");
 
   const isDirectUnread = (threadId) => unreadDirectThreadIds?.has?.(String(threadId));
   const isRoomUnread = (roomId) => unreadRoomIds?.has?.(String(roomId));
+  const unreadRoomCount = recentRooms.filter((r) => isRoomUnread(r.roomId)).length;
+  const unreadDirectCount = recentThreads.filter((t) =>
+    isDirectUnread(t.directThreadId)
+  ).length;
+  const [showArchivedRooms, setShowArchivedRooms] = useState(false);
 
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,6 +45,8 @@ export default function Sidebar({
   const [classes, setClasses] = useState([]);
   const [classesBusy, setClassesBusy] = useState(false);
   const [classId, setClassId] = useState("");
+  const [showRooms, setShowRooms] = useState(true);
+  const [showDirectMessages, setShowDirectMessages] = useState(true);
 
   const [memberQuery, setMemberQuery] = useState("");
   const [memberBusy, setMemberBusy] = useState(false);
@@ -318,85 +329,196 @@ export default function Sidebar({
       </div>
 
       <div className="p-3 border-bottom">
-        <div className="fw-semibold mb-2">Rooms</div>
+        <Button
+          variant="link"
+          className="p-0 text-decoration-none d-flex align-items-center justify-content-between w-100"
+          onClick={() => setShowRooms((prev) => !prev)}
+        >
+          <span className={unreadRoomCount > 0 ? "fw-bold" : "fw-semibold"}>
+            Rooms
+            {recentRooms.length > 0 && (
+              <span className="text-muted ms-1">({recentRooms.length})</span>
+            )}
+            {unreadRoomCount > 0 && (
+              <span className="badge bg-primary ms-2">{unreadRoomCount}</span>
+            )}
+          </span>
+          <span>{showRooms ? "▾" : "▸"}</span>
+        </Button>
 
-        {recentRooms.length === 0 ? (
-          <div className="small text-muted">No rooms yet.</div>
-        ) : (
-          <ListGroup>
-            {recentRooms.map((r) => {
-              const unread = isRoomUnread(r.roomId);
+        {showRooms && (
+          <div className="mt-2">
+            {recentRooms.length === 0 ? (
+              <div className="small text-muted">No rooms yet.</div>
+            ) : (
+              <ListGroup>
+                {recentRooms.map((r) => {
+                  const unread = isRoomUnread(r.roomId);
 
-              return (
-                <ListGroup.Item
-                  key={r.roomId}
-                  action
-                  onClick={() => onOpenRoom?.(r)}
-                >
-                  <div className={unread ? "fw-bold" : "fw-semibold"}>
-                    {r.name}
-                  </div>
+                  return (
+                    <ListGroup.Item
+                      key={r.roomId}
+                      action
+                      onClick={() => onOpenRoom?.(r)}
+                    >
+                      <div className={unread ? "fw-bold" : "fw-semibold"}>
+                        {r.name}
+                      </div>
 
-                  {r.className && (
-                    <div className="small text-muted">
-                      {r.className}
-                    </div>
-                  )}
+                      {r.className && (
+                        <div className="small text-muted">
+                          {r.className}
+                        </div>
+                      )}
 
-                  <div className={`small text-truncate ${unread ? "fw-bold" : "text-muted"}`}>
-                    {r.lastMessagePreview || "No messages yet."}
-                  </div>
-                  <div className="small text-muted">
-                    {r.lastActivityUtc ? new Date(r.lastActivityUtc).toLocaleString() : ""}
-                  </div>
-                </ListGroup.Item>
-              );
-            })}
-          </ListGroup>
+                      <div className={`small text-truncate ${unread ? "fw-bold" : "text-muted"}`}>
+                        {r.lastMessagePreview || "No messages yet."}
+                      </div>
+
+                      <div className="small text-muted">
+                        {r.lastActivityUtc
+                          ? new Date(r.lastActivityUtc).toLocaleString()
+                          : ""}
+                      </div>
+                    </ListGroup.Item>
+                  );
+                })}
+              </ListGroup>
+            )}
+          </div>
         )}
       </div>
 
-      <div className="p-3 small text-muted">
-        <div className="fw-semibold mb-2">Direct Messages</div>
+      {canManageRooms && (
+        <div className="p-3 border-bottom">
+          <Button
+            variant="link"
+            className="p-0 text-decoration-none d-flex align-items-center justify-content-between w-100"
+            onClick={() => setShowArchivedRooms((prev) => !prev)}
+          >
+            <span className="fw-semibold">Archived Rooms</span>
+            <span>{showArchivedRooms ? "▾" : "▸"}</span>
+          </Button>
 
-        {recentBusy && (
-          <div className="d-flex align-items-center gap-2 text-muted small mb-2">
-            <Spinner animation="border" size="sm" />
-            Loading…
+          {showArchivedRooms && (
+          <div className="mt-2">
+              {archivedRoomsBusy && (
+                <div className="d-flex align-items-center gap-2 text-muted small mb-2">
+                  <Spinner animation="border" size="sm" />
+                  Loading archived rooms…
+                </div>
+              )}
+
+              {archivedRoomsError && (
+                <div className="text-danger small mb-2">
+                  {archivedRoomsError}
+                </div>
+              )}
+
+              {!archivedRoomsBusy && archivedRooms.length === 0 ? (
+                <div className="small text-muted">No archived rooms.</div>
+              ) : (
+                <ListGroup>
+                  {archivedRooms.map((r) => (
+                    <ListGroup.Item
+                      key={r.roomId}
+                      action
+                      onClick={() => onOpenRoom?.({ ...r, isArchived: true })}
+                    >
+                      <div className="fw-semibold">{r.name}</div>
+
+                      {r.className && (
+                        <div className="small text-muted">
+                          {r.className}
+                        </div>
+                      )}
+
+                      <div className="small text-muted text-truncate">
+                        {r.lastMessagePreview || "No messages."}
+                      </div>
+
+                      <div className="small text-muted">
+                        {r.lastActivityUtc
+                          ? new Date(r.lastActivityUtc).toLocaleString()
+                          : ""}
+                      </div>
+                    </ListGroup.Item>
+                  ))}
+                </ListGroup>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="p-3 small text-muted">
+        <Button
+          variant="link"
+          className="p-0 text-decoration-none d-flex align-items-center justify-content-between w-100"
+          onClick={() => setShowDirectMessages((prev) => !prev)}
+        >
+          <span className={unreadDirectCount > 0 ? "fw-bold" : "fw-semibold"}>
+            Direct Messages
+            {recentThreads.length > 0 && (
+              <span className="text-muted ms-1">({recentThreads.length})</span>
+            )}
+            {unreadDirectCount > 0 && (
+              <span className="badge bg-primary ms-2">{unreadDirectCount}</span>
+            )}
+          </span>
+          <span>{showDirectMessages ? "▾" : "▸"}</span>
+        </Button>
+
+        {showDirectMessages && (
+          <div className="mt-2">
+            {recentBusy && (
+              <div className="d-flex align-items-center gap-2 text-muted small mb-2">
+                <Spinner animation="border" size="sm" />
+                Loading…
+              </div>
+            )}
+
+            {recentError && <div className="text-danger small mb-2">{recentError}</div>}
+
+            {recentThreads.length === 0 && !recentBusy ? (
+              <div className="small text-muted">No direct messages yet.</div>
+            ) : (
+              <ListGroup>
+                {recentThreads.map((t) => {
+                  const unread = isDirectUnread(t.directThreadId);
+
+                  return (
+                    <ListGroup.Item
+                      key={t.directThreadId}
+                      action
+                      onClick={() =>
+                        onOpenDirect?.({
+                          userId: t.otherUserId,
+                          displayName: t.otherDisplayName,
+                          email: t.otherEmail
+                        })
+                      }
+                    >
+                      <div className={unread ? "fw-bold" : "fw-semibold"}>
+                        {t.otherDisplayName}
+                      </div>
+
+                      <div className={`small text-truncate ${unread ? "fw-bold" : "text-muted"}`}>
+                        {t.lastMessagePreview || "No messages yet."}
+                      </div>
+
+                      <div className="small text-muted">
+                        {t.lastActivityUtc
+                          ? new Date(t.lastActivityUtc).toLocaleString()
+                          : ""}
+                      </div>
+                    </ListGroup.Item>
+                  );
+                })}
+              </ListGroup>
+            )}
           </div>
         )}
-
-        {recentError && <div className="text-danger small mb-2">{recentError}</div>}
-
-        <ListGroup>
-          {recentThreads.map((t) => {
-            const unread = isDirectUnread(t.directThreadId);
-
-            return (
-              <ListGroup.Item
-                key={t.directThreadId}
-                action
-                onClick={() =>
-                  onOpenDirect?.({
-                    userId: t.otherUserId,
-                    displayName: t.otherDisplayName,
-                    email: t.otherEmail
-                  })
-                }
-              >
-                <div className={unread ? "fw-bold" : "fw-semibold"}>
-                  {t.otherDisplayName}
-                </div>
-                <div className={`small text-truncate ${unread ? "fw-bold" : "text-muted"}`}>
-                  {t.lastMessagePreview}
-                </div>
-                <div className="small text-muted">
-                  {new Date(t.lastActivityUtc).toLocaleString()}
-                </div>
-              </ListGroup.Item>
-            );
-          })}
-        </ListGroup>
       </div>
 
       <Modal show={showCreateRoom} onHide={closeCreateRoomModal} centered size="lg">
