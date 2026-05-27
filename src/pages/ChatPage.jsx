@@ -2,8 +2,8 @@ import React, { useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import useIdleLogout from "../auth/useIdleLogout";
-import AppNavbar from "../components/AppNavbar";
-import ChatShell from "../components/ChatShell";
+import AppNavbar from "../componentsRefactor/AppNavbar";
+import ChatShell from "../componentsRefactor/ChatShell";
 
 export default function ChatPage() {
   const { logout } = useAuth();
