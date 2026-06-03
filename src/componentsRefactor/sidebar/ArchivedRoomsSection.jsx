@@ -19,7 +19,7 @@ export default function ArchivedRoomsSection({
         className="p-0 text-decoration-none d-flex align-items-center justify-content-between w-100"
         onClick={() => setShowArchivedRooms((prev) => !prev)}
       >
-        <span className="fw-semibold">Archived Rooms</span>
+        <span className="fw-semibold">Pinned Archived Rooms</span>
         <span>{showArchivedRooms ? "▾" : "▸"}</span>
       </Button>
 
@@ -74,3 +74,4 @@ export default function ArchivedRoomsSection({
     </div>
   );
 }
+ 

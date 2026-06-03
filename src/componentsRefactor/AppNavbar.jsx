@@ -98,6 +98,9 @@ export default function AppNavbar({ onArchiveChanged }) {
   const [archiveDirectThreads, setArchiveDirectThreads] = useState([]);
   const [selectedArchiveRoomIds, setSelectedArchiveRoomIds] = useState([]);
   const [selectedArchiveDirectThreadIds, setSelectedArchiveDirectThreadIds] = useState([]);
+  const [archivedSidebarRooms, setArchivedSidebarRooms] = useState([]);
+  const [selectedSidebarArchiveRoomIds, setSelectedSidebarArchiveRoomIds] = useState([]);
+  const [archivePreferenceSaving, setArchivePreferenceSaving] = useState(false);
 
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [editingRow, setEditingRow] = useState(createBlankRow());
@@ -207,6 +210,11 @@ export default function AppNavbar({ onArchiveChanged }) {
     [selectedArchiveDirectThreadIds]
   );
 
+  const sidebarArchiveRoomIdSet = useMemo(
+    () => new Set(selectedSidebarArchiveRoomIds.map(String)),
+    [selectedSidebarArchiveRoomIds]
+  );
+
   const hasArchiveSelection =
     selectedArchiveRoomIds.length > 0 || selectedArchiveDirectThreadIds.length > 0;
 
@@ -219,9 +227,20 @@ export default function AppNavbar({ onArchiveChanged }) {
 
     try {
       const res = await api.get("/api/archive/options");
-      setArchiveRooms(Array.isArray(res.data?.rooms) ? res.data.rooms : []);
-      setArchiveDirectThreads(
-        Array.isArray(res.data?.directThreads) ? res.data.directThreads : []
+
+      const activeRooms = Array.isArray(res.data?.rooms) ? res.data.rooms : [];
+      const activeDirectThreads = Array.isArray(res.data?.directThreads)
+        ? res.data.directThreads
+        : [];
+      const archivedRooms = Array.isArray(res.data?.archivedRooms)
+        ? res.data.archivedRooms
+        : [];
+
+      setArchiveRooms(activeRooms);
+      setArchiveDirectThreads(activeDirectThreads);
+      setArchivedSidebarRooms(archivedRooms);
+      setSelectedSidebarArchiveRoomIds(
+        archivedRooms.filter((r) => r.showInSidebar).map((r) => r.roomId)
       );
     } catch (e) {
       console.error(e);
@@ -232,7 +251,7 @@ export default function AppNavbar({ onArchiveChanged }) {
   };
 
   const closeArchiveModal = () => {
-    if (archiveSaving) return;
+    if (archiveSaving || archivePreferenceSaving) return;
     resetArchiveModal();
   };
 
@@ -274,6 +293,16 @@ export default function AppNavbar({ onArchiveChanged }) {
     }
   };
 
+  const toggleSidebarArchiveRoom = (roomId) => {
+    const id = String(roomId);
+
+    setSelectedSidebarArchiveRoomIds((prev) =>
+      prev.map(String).includes(id)
+        ? prev.filter((x) => String(x) !== id)
+        : [...prev, roomId]
+    );
+  };
+
   const resetArchiveModal = () => {
     setShowArchiveModal(false);
     setArchiveError("");
@@ -281,6 +310,10 @@ export default function AppNavbar({ onArchiveChanged }) {
     setArchiveDirectThreads([]);
     setSelectedArchiveRoomIds([]);
     setSelectedArchiveDirectThreadIds([]);
+
+    setArchivedSidebarRooms([]);
+    setSelectedSidebarArchiveRoomIds([]);
+    setArchivePreferenceSaving(false);
   };
 
   const submitArchive = async () => {
@@ -307,6 +340,38 @@ export default function AppNavbar({ onArchiveChanged }) {
       );
     } finally {
       setArchiveSaving(false);
+    }
+  };
+
+  const saveArchiveSidebarPreferences = async () => {
+    setArchivePreferenceSaving(true);
+    setArchiveError("");
+
+    try {
+      await api.put("/api/archive/sidebar-preferences", {
+        roomIds: selectedSidebarArchiveRoomIds
+      });
+
+      await onArchiveChanged?.();
+
+      const res = await api.get("/api/archive/options");
+      const archivedRooms = Array.isArray(res.data?.archivedRooms)
+        ? res.data.archivedRooms
+        : [];
+
+      setArchivedSidebarRooms(archivedRooms);
+      setSelectedSidebarArchiveRoomIds(
+        archivedRooms.filter((r) => r.showInSidebar).map((r) => r.roomId)
+      );
+    } catch (e) {
+      console.error(e);
+      setArchiveError(
+        typeof e?.response?.data === "string"
+          ? e.response.data
+          : "Failed to save archived sidebar choices."
+      );
+    } finally {
+      setArchivePreferenceSaving(false);
     }
   };
 
@@ -1364,7 +1429,7 @@ export default function AppNavbar({ onArchiveChanged }) {
         showChangePasswordModal={showChangePasswordModal}
       />
 
-<ArchiveModal
+      <ArchiveModal
         archiveDirectThreadIdSet={archiveDirectThreadIdSet}
         archiveDirectThreads={archiveDirectThreads}
         archiveError={archiveError}
@@ -1382,6 +1447,12 @@ export default function AppNavbar({ onArchiveChanged }) {
         toggleAllArchiveRooms={toggleAllArchiveRooms}
         toggleArchiveDirectThread={toggleArchiveDirectThread}
         toggleArchiveRoom={toggleArchiveRoom}
+
+        archivedSidebarRooms={archivedSidebarRooms}
+        sidebarArchiveRoomIdSet={sidebarArchiveRoomIdSet}
+        toggleSidebarArchiveRoom={toggleSidebarArchiveRoom}
+        saveArchiveSidebarPreferences={saveArchiveSidebarPreferences}
+        archivePreferenceSaving={archivePreferenceSaving}
       />
     </>
   );

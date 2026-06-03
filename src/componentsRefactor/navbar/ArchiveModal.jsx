@@ -19,7 +19,13 @@ export default function ArchiveModal(props) {
     toggleAllArchiveDirectThreads,
     toggleAllArchiveRooms,
     toggleArchiveDirectThread,
-    toggleArchiveRoom
+    toggleArchiveRoom,
+
+    archivedSidebarRooms = [],
+    sidebarArchiveRoomIdSet,
+    toggleSidebarArchiveRoom,
+    saveArchiveSidebarPreferences,
+    archivePreferenceSaving
   } = props;
 
   return (
@@ -177,6 +183,91 @@ export default function ArchiveModal(props) {
                       </table>
                     </div>
                   </div>
+
+                  <div className="col-12">
+                    <hr />
+
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                      <div>
+                        <div className="fw-semibold">Archived Rooms Shown on Sidebar</div>
+                        <div className="small text-muted">
+                          Check the archived rooms you want displayed on your sidebar. This only affects your account.
+                        </div>
+                      </div>
+
+                      <Button
+                        variant="outline-primary"
+                        size="sm"
+                        disabled={archivePreferenceSaving || archiveLoading}
+                        onClick={saveArchiveSidebarPreferences}
+                      >
+                        {archivePreferenceSaving ? "Saving..." : "Save Sidebar Choices"}
+                      </Button>
+                    </div>
+
+                    <div className="border rounded-3 overflow-auto" style={{ maxHeight: 280 }}>
+                      <table className="table table-sm table-hover mb-0 align-middle">
+                        <thead className="table-light">
+                          <tr>
+                            <th style={{ width: 40 }}></th>
+                            <th>Archived Room</th>
+                            <th>Archived</th>
+                            <th>Last Activity</th>
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          {archivedSidebarRooms.length === 0 ? (
+                            <tr>
+                              <td colSpan="4" className="text-muted small">
+                                No archived rooms are available to your user.
+                              </td>
+                            </tr>
+                          ) : (
+                            archivedSidebarRooms.map((r) => (
+                              <tr key={r.roomId}>
+                                <td>
+                                  <Form.Check
+                                    type="checkbox"
+                                    checked={sidebarArchiveRoomIdSet?.has?.(String(r.roomId))}
+                                    disabled={archivePreferenceSaving}
+                                    onChange={() => toggleSidebarArchiveRoom(r.roomId)}
+                                  />
+                                </td>
+
+                                <td>
+                                  <div className="fw-semibold">{r.name}</div>
+
+                                  {r.className && (
+                                    <div className="small text-muted">{r.className}</div>
+                                  )}
+
+                                  {r.lastMessagePreview && (
+                                    <div className="small text-muted text-truncate">
+                                      {r.lastMessagePreview}
+                                    </div>
+                                  )}
+                                </td>
+
+                                <td className="small text-muted">
+                                  {r.archivedUtc
+                                    ? new Date(r.archivedUtc).toLocaleString()
+                                    : ""}
+                                </td>
+
+                                <td className="small text-muted">
+                                  {r.lastActivityUtc
+                                    ? new Date(r.lastActivityUtc).toLocaleString()
+                                    : ""}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                 </div>
               )}
             </Modal.Body>
@@ -185,7 +276,7 @@ export default function ArchiveModal(props) {
               <Button
                 variant="outline-secondary"
                 onClick={closeArchiveModal}
-                disabled={archiveSaving}
+                disabled={archiveSaving || archivePreferenceSaving}
               >
                 Cancel
               </Button>
@@ -193,7 +284,12 @@ export default function ArchiveModal(props) {
               <Button
                 variant="primary"
                 onClick={submitArchive}
-                disabled={archiveSaving || archiveLoading || !hasArchiveSelection}
+                disabled={
+                  archiveSaving ||
+                  archivePreferenceSaving ||
+                  archiveLoading ||
+                  !hasArchiveSelection
+                }
               >
                 {archiveSaving ? "Archiving..." : "Archive"}
               </Button>
